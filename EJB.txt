@@ -1,0 +1,168 @@
+1. A stateful session bean is a type of enterprise bean which preserve the conversational state with client. A stateful session bean as per its name keeps associated 
+client state in its instance variables. EJB Container creates a separate stateful session bean to process client's each request. As soon as request scope is over, 
+statelful session bean is destroyed. If you create get 2 stateful instances by context lookup then data you update in 1st instance would be available in first instance
+ only, then once you get 2nd instace it will not have data updated in 1st instace(any instance variable)
+
+2. A stateless session bean is a type of enterprise bean which is normally used to do independent operations. A stateless session bean as per its name does not have any 
+associated client state, but it may preserve its instance state. EJB Container normally creates a pool of few stateless bean's objects and use these objects to process 
+client's request. Because of pool, instance variable values are not guaranteed to be same across lookups/method calls.
+
+if a instance variable is presnet in stateless session bean and some operation is changing the value of that variable, then in case a single stateless ejb object is
+ maintained in pool, you will  see that instance variable to be same across the calls. If EJB pool has more session beans EJB container may or may not return 
+ same stateless ejb object for every lookup. Stateless ejb bean is keeping value of instance variable till the server is not restarted.
+
+
+3. Stateful bean is destroyed as soon as request scope is over while Stateless ejb bean is alive till the server is not restarted.
+
+4. in EJB 2.0 we give JNDI name in deployment descriptor in ejb-jar.xml. In EJB 3.x modules. If you do not explicitly assign bindings, 
+the EJB container assigns default bindings whhich we can see during jboss startup.
+
+5. Did not use Entity beans that time because EJB 1 and 2 seem to had performance issues with Entity beans and noone was using it.
+
+
+EJB 3.1 -->
+
+
+@Remote
+public interface LibrarySessionBeanRemote {
+ 
+    void addBook(String bookName);
+ 
+    List getBooks();
+    
+}
+
+@local
+public interface LibrarySessionBeanLocal {
+ 
+    void addBook(String bookName);
+ 
+    List getBooks();
+    
+}
+
+To change the JNDI name for your local interface
+@Stateless
+
+@LocalBinding(jndiBinding="tutorialsPoint/librarySession") -- Use this if you want to define JNDI name, else JNDI name would be picked automatic
+public class MySessionBean implements MySession
+{
+}
+
+@Stateless
+@RemoteBinding(jndiBinding="tutorialsPoint/librarySession") -- Use this if you want to define JNDI name, else JNDI name would be picked automatic
+public class MySessionBean implements MySession
+{
+}
+
+@stateful
+@stateless
+@Pool (value=PoolDefaults.POOL_IMPLEMENTATION_STRICTMAX,maxSize=5,timeout=1000)
+public class LibrarySessionBean implements LibrarySessionBeanRemote {
+    
+    List<String> bookShelf;    
+    
+    public LibrarySessionBean(){
+       bookShelf = new ArrayList<String>();
+    }
+    
+    public void addBook(String bookName) {
+        bookShelf.add(bookName);
+    }    
+ 
+    public List<String> getBooks() {
+        return bookShelf;
+    }
+}
+
+
+@MessageDriven(
+   name = "BookMessageHandler",
+   activationConfig = {
+      @ActivationConfigProperty( propertyName = "destinationType", 
+                                 propertyValue = "javax.jms.Queue"),
+      @ActivationConfigProperty( propertyName = "destination", 
+                                 propertyValue ="/queue/BookQueue")
+   }
+)
+@MessageDriven(
+   name = "BookMessageHandler",
+   mappedName = "queue/mdb", --- This is needed to define jndi, else jndi would be choosen by container while deployment
+   activationConfig = {
+      @ActivationConfigProperty( propertyName = "destinationType", 
+                                 propertyValue = "javax.jms.Queue"),
+      @ActivationConfigProperty( propertyName = "destination", 
+                                 propertyValue ="/queue/BookQueue"),
+	  @ActivationConfigProperty(propertyName="MaxPoolSize",propertyValue="50")
+   },
+   @Pool (value=PoolDefaults.POOL_IMPLEMENTATION_STRICTMAX,maxSize=5,timeout=1000)
+)
+	
+public class LibraryMessageBean implements MessageListener {
+ 
+   @Resource
+   private MessageDrivenContext mdctx;  
+ 
+   @EJB -- optional -- name, beanName , mappedName(Used to specify the JNDI name of the referenced bean)
+   LibraryPersistentBeanRemote libraryBean;
+ 
+   public LibraryMessageBean(){        
+   }
+ 
+   public void onMessage(Message message) {
+      ObjectMessage objectMessage = null;
+      try {
+         objectMessage = (ObjectMessage) message;
+         Book book = (Book) objectMessage.getObject(); 
+         libraryBean.addBook(book);
+ 
+      } catch (JMSException ex) {
+         mdctx.setRollbackOnly();
+      }       
+   }   
+}
+CLIENT :
+ InitialContext ctx = new InitialContext(props);
+ LibrarySessionBeanRemote libraryBean = 
+         (LibrarySessionBeanRemote)ctx.lookup("LibrarySessionBean/remote");
+ libraryBean.addBook(bookName);
+
+
+TRANSACTIONS -- Container and Bean managed
+
+
+@Stateless
+@TransactionManagement(TransactionManagementType.CONTAINER)
+public class UserDetailBean implements UserDetailRemote {
+	
+   private UserDetail;
+
+   @TransactionAttribute(TransactionAttributeType.REQUIRED)
+   public void createUserDetail() {
+      //create user details object
+   }
+}
+
+@Stateless
+public class UserSessionBean implements UserRemote {
+	
+   private User;
+
+   @EJB
+   private UserDetailRemote userDetail;
+
+   public void createUser() {
+      //create user 
+      //...
+      //create user details
+      userDetail.createUserDetail();
+   }
+}
+
+createUser() business method is using createUserDetail(). If exception occured during createUser() call and User object is not created then UserDetail 
+object will also not be created.
+
+
+SECURITY -
+DeclareRoles, RolesAllowed , PermitAll , DenyAll  etc can be used to mark methods or classes for role based access. JAAS can be used for secutiry authorization and 
+authentication.
